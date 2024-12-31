@@ -1,143 +1,142 @@
-module Linear_algebra = struct
+let inv_log_2 = 1. /. Float.log 2.
+
+module Vector = struct
   open Lacaml.D
+  type t = vec
 
-  let inv_log_2 = 1. /. Float.log 2.
+  let init size ~f = Vec.init size (fun i -> f (i - 1))
 
-  module Vector = struct
-    type t = vec
+  let inplace_scale f a = scal f a
 
-    (* let init size ~f = Vec.init size (fun i -> f (i - 1)) *)
+  let scale f a =
+    let r = copy a in
+    inplace_scale f r ;
+    r
 
-    let inplace_scale f a = scal f a
+  let mul v1 v2 = Vec.mul v1 v2
 
-    let scale f a =
-      let r = copy a in
-      inplace_scale f r ;
-      r
-
-    let mul v1 v2 = Vec.mul v1 v2
-
-    let dot v1 v2 = dot v1 v2
-  end
-
-  module Matrix = struct
-    type t = mat
-
-    let inplace_scal_mat_mul f a = Mat.scal f a
-
-    let scale f a =
-      let r = lacpy a in
-      inplace_scal_mat_mul f r ;
-      r
-
-    let dotv m v = gemv m v
-
-    let dot m n = gemm m n
-
-    let norm1 x = lange ~norm:`O x
-
-    let expm x =
-      let m = Mat.dim1 x in
-      let n = Mat.dim2 x in
-      if m <> n then invalid_arg "matrix not square" ;
-      (* trivial case *)
-      if m = 1 && n = 1 then
-        Mat.make 1 1 (Float.exp x.{1, 1})
-      else (
-        (* TODO: use gebal to balance to improve accuracy, refer to Julia's impl *)
-        let xe = Mat.identity m in
-        let norm_x = norm1 x in
-        (* for small norm, use lower order Padé-approximation *)
-        if norm_x <= 2.097847961257068 then (
-          let c = (
-            if norm_x > 0.9504178996162932 then
-              [|17643225600.; 8821612800.; 2075673600.; 302702400.; 30270240.; 2162160.; 110880.; 3960.; 90.; 1.|]
-            else if norm_x > 0.2539398330063230 then
-              [|17297280.; 8648640.; 1995840.; 277200.; 25200.; 1512.; 56.; 1.|]
-            else if norm_x > 0.01495585217958292 then
-              [|30240.; 15120.; 3360.; 420.; 30.; 1.|]
-            else
-              [|120.; 60.; 12.; 1.|]
-          ) in
-
-          let x2 = gemm x x in
-          let p = ref (lacpy xe) in
-          let u = scale c.(1) !p in
-          let v = scale c.(0) !p in
-
-          for i = 1 to Array.(length c / 2 - 1) do
-            let j = 2 * i in
-            let k = j + 1 in
-            p := gemm !p x2 ;
-            Mat.axpy ~alpha:c.(k) !p u ;
-            Mat.axpy ~alpha:c.(j) !p v ;
-          done;
-
-          let u = gemm x u in
-          let a = Mat.sub v u in
-          let b = Mat.add v u in
-          gesv a b ;
-          b
-        )
-        (* for larger norm, Padé-13 approximation *)
-        else (
-          let s = Float.log (norm_x /. 5.4) *. inv_log_2 in
-          let t = ceil s in
-          let x = if s > 0. then scale (2. ** (-. t)) x else x in
-
-          let c =
-            [|64764752532480000.; 32382376266240000.; 7771770303897600.;
-              1187353796428800.;  129060195264000.;   10559470521600.;
-              670442572800.;      33522128640.;       1323241920.;
-              40840800.;          960960.;            16380.;
-              182.;               1.|]
-          in
-
-          let x2 = gemm x x in
-          let x4 = gemm x2 x2 in
-          let x6 = gemm x2 x4 in
-          let u =
-            let m = lacpy x2 in
-            inplace_scal_mat_mul c.(9) m ;
-            Mat.axpy ~alpha:c.(11) x4 m ;
-            Mat.axpy ~alpha:c.(13) x6 m ;
-            let m = gemm x6 m in
-            Mat.axpy ~alpha:c.(1) xe m ;
-            Mat.axpy ~alpha:c.(3) x2 m ;
-            Mat.axpy ~alpha:c.(5) x4 m ;
-            Mat.axpy ~alpha:c.(7) x6 m ;
-            gemm x m
-          in
-          let v =
-            let m = lacpy x2 in
-            inplace_scal_mat_mul c.(8) m ;
-            Mat.axpy ~alpha:c.(10) x4 m ;
-            Mat.axpy ~alpha:c.(12) x6 m ;
-            let m = gemm x6 m in
-            Mat.axpy ~alpha:c.(0) xe m ;
-            Mat.axpy ~alpha:c.(2) x2 m ;
-            Mat.axpy ~alpha:c.(4) x4 m ;
-            Mat.axpy ~alpha:c.(6) x6 m ;
-            m
-          in
-          let a = Mat.sub v u in
-          let b = Mat.add v u in
-          gesv a b ;
-
-          let x = ref (lacpy b) in
-          if s > 0. then (
-            for _i = 1 to int_of_float t do
-              x := gemm !x !x
-            done;
-          );
-          !x
-        )
-      )
-  end
+  let dot v1 v2 = dot v1 v2
 end
 
-type vector = Linear_algebra.Vector.t
-type matrix = Linear_algebra.Matrix.t
+module Matrix = struct
+  open Lacaml.D
+
+  type t = mat
+
+  let inplace_scal_mat_mul f a = Mat.scal f a
+
+  let scale f a =
+    let r = lacpy a in
+    inplace_scal_mat_mul f r ;
+    r
+
+  let dotv m v = gemv m v
+
+  let dot m n = gemm m n
+
+  let norm1 x = lange ~norm:`O x
+
+  let expm x =
+    let m = Mat.dim1 x in
+    let n = Mat.dim2 x in
+    if m <> n then invalid_arg "matrix not square" ;
+    (* trivial case *)
+    if m = 1 && n = 1 then
+      Mat.make 1 1 (Float.exp x.{1, 1})
+    else (
+      (* TODO: use gebal to balance to improve accuracy, refer to Julia's impl *)
+      let xe = Mat.identity m in
+      let norm_x = norm1 x in
+      (* for small norm, use lower order Padé-approximation *)
+      if norm_x <= 2.097847961257068 then (
+        let c = (
+          if norm_x > 0.9504178996162932 then
+            [|17643225600.; 8821612800.; 2075673600.; 302702400.; 30270240.; 2162160.; 110880.; 3960.; 90.; 1.|]
+          else if norm_x > 0.2539398330063230 then
+            [|17297280.; 8648640.; 1995840.; 277200.; 25200.; 1512.; 56.; 1.|]
+          else if norm_x > 0.01495585217958292 then
+            [|30240.; 15120.; 3360.; 420.; 30.; 1.|]
+          else
+            [|120.; 60.; 12.; 1.|]
+        ) in
+
+        let x2 = gemm x x in
+        let p = ref (lacpy xe) in
+        let u = scale c.(1) !p in
+        let v = scale c.(0) !p in
+
+        for i = 1 to Array.(length c / 2 - 1) do
+          let j = 2 * i in
+          let k = j + 1 in
+          p := gemm !p x2 ;
+          Mat.axpy ~alpha:c.(k) !p u ;
+          Mat.axpy ~alpha:c.(j) !p v ;
+        done;
+
+        let u = gemm x u in
+        let a = Mat.sub v u in
+        let b = Mat.add v u in
+        gesv a b ;
+        b
+      )
+      (* for larger norm, Padé-13 approximation *)
+      else (
+        let s = Float.log (norm_x /. 5.4) *. inv_log_2 in
+        let t = ceil s in
+        let x = if s > 0. then scale (2. ** (-. t)) x else x in
+
+        let c =
+          [|64764752532480000.; 32382376266240000.; 7771770303897600.;
+            1187353796428800.;  129060195264000.;   10559470521600.;
+            670442572800.;      33522128640.;       1323241920.;
+            40840800.;          960960.;            16380.;
+            182.;               1.|]
+        in
+
+        let x2 = gemm x x in
+        let x4 = gemm x2 x2 in
+        let x6 = gemm x2 x4 in
+        let u =
+          let m = lacpy x2 in
+          inplace_scal_mat_mul c.(9) m ;
+          Mat.axpy ~alpha:c.(11) x4 m ;
+          Mat.axpy ~alpha:c.(13) x6 m ;
+          let m = gemm x6 m in
+          Mat.axpy ~alpha:c.(1) xe m ;
+          Mat.axpy ~alpha:c.(3) x2 m ;
+          Mat.axpy ~alpha:c.(5) x4 m ;
+          Mat.axpy ~alpha:c.(7) x6 m ;
+          gemm x m
+        in
+        let v =
+          let m = lacpy x2 in
+          inplace_scal_mat_mul c.(8) m ;
+          Mat.axpy ~alpha:c.(10) x4 m ;
+          Mat.axpy ~alpha:c.(12) x6 m ;
+          let m = gemm x6 m in
+          Mat.axpy ~alpha:c.(0) xe m ;
+          Mat.axpy ~alpha:c.(2) x2 m ;
+          Mat.axpy ~alpha:c.(4) x4 m ;
+          Mat.axpy ~alpha:c.(6) x6 m ;
+          m
+        in
+        let a = Mat.sub v u in
+        let b = Mat.add v u in
+        gesv a b ;
+
+        let x = ref (lacpy b) in
+        if s > 0. then (
+          for _i = 1 to int_of_float t do
+            x := gemm !x !x
+          done;
+        );
+        !x
+      )
+    )
+end
+
+type vector = Vector.t
+type matrix = Matrix.t
 
 type _ ty =
   (* | TUnit : unit ty *)
@@ -295,7 +294,7 @@ module CCC(Primitive : Primitive) = struct
         TPair (return_type f ty, return_type g ty)
       | Primitive p -> Primitive.return_type p
       | Const (ty, _) -> ty
-  
+
   (* state monad *)
   module M = struct
     type 'a t = 'a * bool
@@ -408,7 +407,7 @@ module CCC(Primitive : Primitive) = struct
     = function
       | Fork (Exl, Exr) -> M.return_modified Id
       | term -> M.return term
-  
+
   let assoc_right_compose
     : type a b. (a, b) t -> (a, b) t M.t
     = function
@@ -451,8 +450,6 @@ module Linear_map = struct
 end
 
 module Primitive = struct
-  open Linear_algebra
-
   type (_, _) t =
     | Add : 'a ty -> ('a * 'a, 'a) t
     | Cos : (float, float) t
@@ -794,8 +791,12 @@ module DSL = struct
   let tpair t1 t2 = TPair (t1, t2)
 
   open Primitive
+
   let const ty c = Const (ty, c)
   let float x = const tfloat x
+  let vector v = const tvector v
+  let matrix m = const tmatrix m
+
   let add ty x y = Primitive (Add ty) $ Pair (x, y)
   let diag x = Primitive Diag $ x
   let mul x y = Primitive Mul $ Pair (x, y)

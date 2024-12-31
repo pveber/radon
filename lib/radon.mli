@@ -1,5 +1,11 @@
-type vector
-type matrix
+type vector = Lacaml.D.vec
+type matrix = Lacaml.D.mat
+
+module Vector : sig
+  type t = vector
+  val init : int -> f:(int -> float) -> t
+end
+
 type 'a ty
 
 module DSL : sig
@@ -10,6 +16,8 @@ module DSL : sig
 
   type 'a exp
   val float : float -> float exp
+  val vector : vector -> vector exp
+  val matrix : matrix -> matrix exp
 
   val pair : 'a exp -> 'b exp -> ('a * 'b) exp
   val fst : ('a * 'b) exp -> 'a exp
@@ -41,11 +49,10 @@ module DSL : sig
     'a ty ->
     'a ->
     float
-    
+
   val grad :
     ('a exp -> float exp) ->
     'a ty ->
     'a ->
     float * 'a
 end
-
