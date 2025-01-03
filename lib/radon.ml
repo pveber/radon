@@ -89,13 +89,13 @@ module Diff = struct
       | TVector -> Lacaml.D.Vec.sub x y
       | TMatrix -> Lacaml.D.Mat.sub x y
 
-  (* let neg *)
-  (*   : type a. a ty -> a -> a *)
-  (*   = fun ty x -> *)
-  (*     match ty with *)
-  (*     | TFloat -> -. x *)
-  (*     | TVector -> Lacaml.D.Vec.neg x *)
-  (*     | TMatrix -> Lacaml.D.Mat.neg x *)
+  let neg
+    : type a. a ty -> a -> a
+    = fun ty x ->
+      match ty with
+      | TFloat -> -. x
+      | TVector -> Lacaml.D.Vec.neg x
+      | TMatrix -> Lacaml.D.Mat.neg x
 
   let mul
     : type a. a ty -> a -> a -> a
@@ -140,14 +140,15 @@ module Diff = struct
   let sub (xf : 'a exp) (yf : 'a exp) stack =
     let x = xf stack in
     let y = yf stack in
+    let ty = ty x in
     let z = V {
-        ty = ty x ;
-        v = sub (ty x) (get_v x) (get_v y) ;
+        ty ;
+        v = sub ty (get_v x) (get_v y) ;
         d = zero x
       } in
     let backward () =
       update_d x (get_d z) ;
-      update_d y (get_d z)
+      update_d y (neg ty (get_d z))
     in
     Stack.push backward stack ;
     z
@@ -201,14 +202,14 @@ module Diff = struct
     get_v y, get_d x
 end
 
-let%expect_test "second order polynomial (2x + 1)^2" =
+let%expect_test "second order polynomial (2x + 1)^2 - x" =
   Diff.(
     obs
       (fun x ->
          let* y = add (mul (float 2.) x) (float 1.) in
-         mul y y)
+         sub (mul y y) x)
       (3., tfloat)
   )
   |> [%show: float * float]
   |> print_endline ;
-  [%expect {| (49., 28.) |}]
+  [%expect {| (46., 27.) |}]
