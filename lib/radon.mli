@@ -1,11 +1,15 @@
 type vector = Lacaml.D.vec
 type matrix = Lacaml.D.mat
 
+module Type : sig
+  type 'a t
+
+  val float : float t
+  val vector : vector t
+  val matrix : matrix t
+end
+
 module type Lang = sig
-  type 'a ty
-  val tfloat : float ty
-  val tvector : vector ty
-  val tmatrix : matrix ty
 
   type 'a exp
 
@@ -25,11 +29,11 @@ module type Lang = sig
   val diag : vector exp -> matrix exp
 
   type 'a obs
-  val obs : ('a exp -> float exp) -> ('a * 'a ty) -> 'a obs
+  val obs : ('a exp -> float exp) -> 'a Type.t -> 'a -> 'a obs
   val obs2 :
     ('a exp -> 'b exp -> float exp) ->
-    ('a * 'a ty) ->
-    ('b * 'b ty) ->
+    ('a Type.t * 'a) ->
+    ('b Type.t * 'b) ->
     ('a * 'b) obs
 end
 
