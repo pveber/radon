@@ -1,5 +1,19 @@
 type vector = Lacaml.D.vec
+
+let pp_vector = Lacaml.D.pp_vec
+
 type matrix = Lacaml.D.mat
+
+module Vector = struct
+  open Lacaml.D
+
+  let inplace_scale f a = scal f a
+
+  let scale f a =
+    let r = copy a in
+    inplace_scale f r ;
+    r
+end
 
 module type Lang = sig
   type 'a ty
@@ -20,10 +34,16 @@ module type Lang = sig
   val sub : 'a exp -> 'a exp -> 'a exp
   val mul : 'a exp -> 'a exp -> 'a exp
 
+  val vector_dot : vector exp -> vector exp -> float exp
   val diag : vector exp -> matrix exp
 
   type 'a obs
   val obs : ('a exp -> float exp) -> ('a * 'a ty) -> 'a obs
+  val obs2 :
+    ('a exp -> 'b exp -> float exp) ->
+    ('a * 'a ty) ->
+    ('b * 'b ty) ->
+    ('a * 'b) obs
 end
 
 module Diff = struct
@@ -189,6 +209,22 @@ module Diff = struct
     Stack.push backward stack ;
     z
 
+  let vector_dot xf yf stack =
+    let x = xf stack in
+    let y = yf stack in
+    let z = V {
+        ty = TFloat ;
+        v = Lacaml.D.dot (get_v x) (get_v y) ;
+        d = 0.
+      } in
+    let backward () =
+      let dz = get_d z in
+      update_d x (Vector.scale dz (get_v y)) ;
+      update_d y (Vector.scale dz (get_v x))
+    in
+    Stack.push backward stack ;
+    z
+
   type 'a obs = float * 'a
 
   let obs (f : 'a exp -> float exp) (x, ty) =
@@ -200,9 +236,24 @@ module Diff = struct
       (Stack.pop stack) ()
     done ;
     get_v y, get_d x
+
+  let obs2 (f : 'a exp -> 'b exp -> float exp) (x, x_ty) (y, y_ty) =
+    let stack = Stack.create () in
+    let x = V { v = x ; ty = x_ty ; d = zero_of_value x_ty x } in
+    let y = V { v = y ; ty = y_ty ; d = zero_of_value y_ty y } in
+    let z = f (Fun.const x) (Fun.const y) stack in
+    update_d z 1. ;
+    while not (Stack.is_empty stack) do
+      (Stack.pop stack) ()
+    done ;
+    get_v z, (get_d x, get_d y)
 end
 
 let%expect_test "second order polynomial (2x + 1)^2 - x" =
+  print_endline {|
+f(x) = (2x + 1)^2 - x evaluated in 3
+f'(x) = 4(2x + 1) - 1
+|} ;
   Diff.(
     obs
       (fun x ->
@@ -213,3 +264,25 @@ let%expect_test "second order polynomial (2x + 1)^2 - x" =
   |> [%show: float * float]
   |> print_endline ;
   [%expect {| (46., 27.) |}]
+
+let%expect_test "dot product w^T w + b" =
+  print_endline {|
+>>> import torch
+>>> w = torch.tensor([1.0,2,0,1], requires_grad = True)
+>>> b = torch.tensor(2.0, requires_grad = True)
+>>> z = torch.dot(w, w) + b
+>>> z.backward()
+>>> w.grad
+tensor([2., 4., 0., 2.])
+>>> b.grad
+tensor(1.)
+|} ;
+  Diff.(
+    obs2
+      (fun w b -> add (vector_dot w w) b)
+      (Lacaml.D.Vec.of_array [|1.;2.;0.;1.|], tvector)
+      (2., tfloat)
+  )
+  |> [%show: float * (vector * float)]
+  |> print_endline ;
+  [%expect {||}]

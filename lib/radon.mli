@@ -20,10 +20,17 @@ module type Lang = sig
   val sub : 'a exp -> 'a exp -> 'a exp
   val mul : 'a exp -> 'a exp -> 'a exp
 
+  val vector_dot : vector exp -> vector exp -> float exp
+
   val diag : vector exp -> matrix exp
 
   type 'a obs
   val obs : ('a exp -> float exp) -> ('a * 'a ty) -> 'a obs
+  val obs2 :
+    ('a exp -> 'b exp -> float exp) ->
+    ('a * 'a ty) ->
+    ('b * 'b ty) ->
+    ('a * 'b) obs
 end
 
 module Diff : Lang with type 'a obs = float * 'a
