@@ -1,4 +1,6 @@
 (library
-  (name radon)
-  (public_name radon)
-  (libraries lacaml))
+ (name radon)
+ (public_name radon)
+ (libraries lacaml)
+ (inline_tests)
+ (preprocess (pps ppx_deriving.show ppx_expect)))
