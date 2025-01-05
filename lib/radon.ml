@@ -293,7 +293,7 @@ module Diff = struct
     let x = get_v x_node in
     let n = Vec.dim x in
     let m = Mat.init_cols n n (fun i j -> if i = j then x.{i} else 0.) in
-    let z = V { ty = Type.Matrix ; v = m ; d = Ops.zero Type.Matrix m } in
+    let z = mk_var Type.Matrix m in
     let backward () =
       let dz = get_d z in
       update_vec_d x_node (fun i -> dz.{i, i})
@@ -304,11 +304,7 @@ module Diff = struct
   let vector_dot xf yf stack =
     let x = xf stack in
     let y = yf stack in
-    let z = V {
-        ty = Type.Float ;
-        v = Lacaml.D.dot (get_v x) (get_v y) ;
-        d = 0.
-      } in
+    let z = mk_var Type.Float (Lacaml.D.dot (get_v x) (get_v y)) in
     let backward () =
       let dz = get_d z in
       update_d x (Vector.scale dz (get_v y)) ;
@@ -367,6 +363,14 @@ f'(x) = 4(2x + 1) - 1
 
 let%expect_test "dot product w^T w + b" =
   print_endline {|
+>>> w = torch.tensor([0.1,0.2,0,-0.1], requires_grad = True)
+>>> b = torch.tensor(0.3, requires_grad = True)
+>>> z = torch.sigmoid(torch.dot(w, w) + b)
+>>> z.backward()
+>>> w.grad
+tensor([ 0.0484,  0.0968,  0.0000, -0.0484])
+>>> b.grad
+tensor(0.2421)
 |} ;
   Diff.(
     let sigmoid x = div (float 1.) (add (float 1.) (exp (neg x))) in
@@ -378,6 +382,15 @@ let%expect_test "dot product w^T w + b" =
   |> [%show: float * (vector * float)]
   |> print_endline ;
   [%expect {|
+    >>> w = torch.tensor([0.1,0.2,0,-0.1], requires_grad = True)
+    >>> b = torch.tensor(0.3, requires_grad = True)
+    >>> z = torch.sigmoid(torch.dot(w, w) + b)
+    >>> z.backward()
+    >>> w.grad
+    tensor([ 0.0484,  0.0968,  0.0000, -0.0484])
+    >>> b.grad
+    tensor(0.2421)
+
     (0.589040434059, ( 0.0484144
                        0.0968287
                                0
