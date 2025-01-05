@@ -20,9 +20,15 @@ module type Lang = sig
   val let_in : 'a exp -> ('a exp -> 'b exp) -> 'b exp
   val ( let* ) : 'a exp -> ('a exp -> 'b exp) -> 'b exp
 
+  val neg : 'a exp -> 'a exp
+  val inv : 'a exp -> 'a exp
+
   val add : 'a exp -> 'a exp -> 'a exp
   val sub : 'a exp -> 'a exp -> 'a exp
   val mul : 'a exp -> 'a exp -> 'a exp
+  val div : 'a exp -> 'a exp -> 'a exp
+
+  val exp : 'a exp -> 'a exp
 
   val vector_dot : vector exp -> vector exp -> float exp
 

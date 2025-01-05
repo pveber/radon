@@ -39,9 +39,15 @@ module type Lang = sig
   val let_in : 'a exp -> ('a exp -> 'b exp) -> 'b exp
   val ( let* ) : 'a exp -> ('a exp -> 'b exp) -> 'b exp
 
+  val neg : 'a exp -> 'a exp
+  val inv : 'a exp -> 'a exp
+
   val add : 'a exp -> 'a exp -> 'a exp
   val sub : 'a exp -> 'a exp -> 'a exp
   val mul : 'a exp -> 'a exp -> 'a exp
+  val div : 'a exp -> 'a exp -> 'a exp
+
+  val exp : 'a exp -> 'a exp
 
   val vector_dot : vector exp -> vector exp -> float exp
   val diag : vector exp -> matrix exp
@@ -53,6 +59,104 @@ module type Lang = sig
     ('a Type.t * 'a) ->
     ('b Type.t * 'b) ->
     ('a * 'b) obs
+end
+
+module Ops = struct
+  let rec zero
+    : type a. a Type.t -> a -> a
+    = fun ty x ->
+      match ty with
+      | Type.Float -> 0.
+      | Type.Vector -> Lacaml.D.Vec.(make (dim x) 0.)
+      | Type.Matrix ->
+        Lacaml.D.Mat.(make (dim1 x) (dim2 x) 0.)
+      | Type.Tuple2 (ty1, ty2) ->
+        (zero ty1 (fst x), zero ty2 (snd x))
+
+  (* let rec one *)
+  (*   : type a. a Type.t -> a -> a *)
+  (*   = fun ty _x -> *)
+  (*     match ty with *)
+  (*     | Type.Float -> 1. *)
+  (*     | Type.Vector *)
+  (*     | Type.Matrix *)
+  (*     | Type.Tuple2 _ -> assert false *)
+
+  let rec unary_operation
+    : type a.
+      (float -> float) ->
+      (vector -> vector) ->
+      (matrix -> matrix) ->
+      a Type.t -> a -> a
+    = fun f0 f1 f2 ty x ->
+      match ty with
+      | Type.Float -> f0 x
+      | Type.Vector -> f1 x
+      | Type.Matrix -> f2 x
+      | Type.Tuple2 (t1, t2) ->
+        (unary_operation f0 f1 f2 t1 (fst x),
+         unary_operation f0 f1 f2 t2 (snd x))
+
+  let neg ty x =
+    unary_operation
+      (fun x -> -. x)
+      Lacaml.D.Vec.neg
+      Lacaml.D.Mat.neg
+      ty x
+
+  let inv ty x =
+    let inv x = 1. /. x in
+    unary_operation
+      inv
+      Lacaml.D.Vec.(map inv)
+      Lacaml.D.Mat.(map inv)
+      ty x
+
+  let exp ty x =
+    unary_operation
+      Float.exp
+      Lacaml.D.Vec.exp
+      Lacaml.D.Mat.exp
+      ty x
+
+  let rec binary_operation
+    : type a.
+      (float -> float -> float) ->
+      (vector -> vector -> vector) ->
+      (matrix -> matrix -> matrix) ->
+      a Type.t -> a -> a -> a
+    = fun f0 f1 f2 ty x y ->
+      match ty with
+      | Type.Float -> f0 x y
+      | Type.Vector -> f1 x y
+      | Type.Matrix -> f2 x y
+      | Type.Tuple2 (t1, t2) ->
+        (binary_operation f0 f1 f2 t1 (fst x) (fst y),
+         binary_operation f0 f1 f2 t2 (snd x) (snd y))
+
+  let add ty x y =
+    binary_operation ( +. )
+      (fun x y -> Lacaml.D.Vec.add x y)
+      (fun x y -> Lacaml.D.Mat.add x y)
+      ty x y
+
+  let sub ty x y =
+    binary_operation ( -. )
+      (fun x y -> Lacaml.D.Vec.sub x y)
+      (fun x y -> Lacaml.D.Mat.sub x y)
+      ty x y
+
+  let mul ty x y =
+    binary_operation ( *. )
+      (fun x y -> Lacaml.D.Vec.mul x y)
+      (fun x y -> Lacaml.D.Mat.mul x y)
+      ty x y
+
+  let div ty x y =
+    binary_operation ( /. )
+      (fun x y -> Lacaml.D.Vec.div x y)
+      (fun x y -> Lacaml.D.Mat.div x y)
+      ty x y
 end
 
 module Diff = struct
@@ -77,70 +181,15 @@ module Diff = struct
     | C x -> x.v
     | V x -> x.v
 
-  let rec zero_of_value
-    : type a. a Type.t -> a -> a
-    = fun ty x ->
-      match ty with
-      | Type.Float -> 0.
-      | Type.Vector -> Lacaml.D.Vec.(make (dim x) 0.)
-      | Type.Matrix ->
-        Lacaml.D.Mat.(make (dim1 x) (dim2 x) 0.)
-      | Type.Tuple2 (ty1, ty2) ->
-        (zero_of_value ty1 (fst x), zero_of_value ty2 (snd x))
-
-  let zero n = zero_of_value (ty n) (get_v n)
+  let zero n = Ops.zero (ty n) (get_v n)
 
   let get_d = function
     | C _ as c -> zero c
     | V u -> u.d
 
-
-  let rec add
-    : type a. a Type.t -> a -> a -> a
-    = fun ty x y ->
-      match ty with
-      | Type.Float -> x +. y
-      | Type.Vector -> Lacaml.D.Vec.add x y
-      | Type.Matrix -> Lacaml.D.Mat.add x y
-      | Type.Tuple2 (t1, t2) ->
-        (add t1 (fst x) (fst y),
-         add t2 (snd x) (snd y))
-
-  let rec sub
-    : type a. a Type.t -> a -> a -> a
-    = fun ty x y ->
-      match ty with
-      | Type.Float -> x -. y
-      | Type.Vector -> Lacaml.D.Vec.sub x y
-      | Type.Matrix -> Lacaml.D.Mat.sub x y
-      | Type.Tuple2 (t1, t2) ->
-        (sub t1 (fst x) (fst y),
-         sub t2 (snd x) (snd y))
-
-  let rec neg
-    : type a. a Type.t -> a -> a
-    = fun ty x ->
-      match ty with
-      | Type.Float -> -. x
-      | Type.Vector -> Lacaml.D.Vec.neg x
-      | Type.Matrix -> Lacaml.D.Mat.neg x
-      | Type.Tuple2 (t1, t2) ->
-        (neg t1 (fst x), neg t2 (snd x))
-
-  let rec mul
-    : type a. a Type.t -> a -> a -> a
-    = fun ty x y ->
-      match ty with
-      | Type.Float -> x *. y
-      | Type.Vector -> Lacaml.D.Vec.mul x y
-      | Type.Matrix -> Lacaml.D.Mat.mul x y
-      | Type.Tuple2 (t1, t2) ->
-        (mul t1 (fst x) (fst y),
-         mul t2 (snd x) (snd y))
-
   let update_d node x = match node with
     | C _ -> ()
-    | V v -> v.d <- add v.ty v.d x
+    | V v -> v.d <- Ops.add v.ty v.d x
 
   let update_vec_d node f = match node with
     | C _ -> ()
@@ -155,66 +204,96 @@ module Diff = struct
   let vector x = fun _ -> C { ty = Type.Vector ; v = x }
   let matrix x = fun _ -> C { ty = Type.Matrix ; v = x }
 
-  let add (xf : 'a exp) (yf : 'a exp) stack =
+  let mk_var ty v =
+    V { ty ; v ; d = Ops.zero ty v }
+
+  let unary_operation_gen f df xf stack =
     let x = xf stack in
-    let y = yf stack in
-    let z = V {
-        ty = ty x ;
-        v = add (ty x) (get_v x) (get_v y) ;
-        d = zero x
-      } in
+    let ty = ty x in
+    let z = mk_var ty (f ty (get_v x)) in
     let backward () =
-      update_d x (get_d z) ;
-      update_d y (get_d z)
+      update_d x (df ty (get_d z) (get_v x))
     in
     Stack.push backward stack ;
     z
 
-  let sub (xf : 'a exp) (yf : 'a exp) stack =
+  let unary_operation f df =
+    unary_operation_gen f (fun ty dz x ->
+        Ops.mul ty dz (df ty x)
+      )
+
+  let neg x =
+    unary_operation_gen
+      Ops.neg
+      (fun ty dz _ -> Ops.neg ty dz)
+      x
+
+  let inv x =
+    unary_operation
+      Ops.inv
+      Ops.(fun ty x -> neg ty (inv ty (mul ty x x)))
+      x
+
+  let exp x =
+    unary_operation Ops.exp Ops.exp x
+
+  let binary_operation_gen f df1 df2 xf yf stack =
     let x = xf stack in
     let y = yf stack in
     let ty = ty x in
-    let z = V {
-        ty ;
-        v = sub ty (get_v x) (get_v y) ;
-        d = zero x
-      } in
+    let z = mk_var ty (f ty (get_v x) (get_v y)) in
     let backward () =
-      update_d x (get_d z) ;
-      update_d y (neg ty (get_d z))
+      update_d x (df1 ty (get_d z) (get_v x) (get_v y)) ;
+      update_d y (df2 ty (get_d z) (get_v x) (get_v y))
     in
     Stack.push backward stack ;
     z
+
+  let binary_operation f df1 df2 =
+    binary_operation_gen f
+      (fun ty dz x y -> Ops.mul ty dz (df1 ty x y))
+      (fun ty dz x y -> Ops.mul ty dz (df2 ty x y))
+
+  let add x y =
+    binary_operation_gen
+      Ops.add
+      (fun _ dz _ _ -> dz)
+      (fun _ dz _ _ -> dz)
+      x y
+
+  let sub x y =
+    binary_operation_gen
+      Ops.sub
+      (fun  _ dz _ _ -> dz)
+      (fun ty dz _ _ -> Ops.neg ty dz)
+      x y
+
+  let mul x y =
+    binary_operation
+      Ops.mul
+      (fun _ _ y -> y)
+      (fun _ x _ -> x)
+      x y
+
+  let div x y =
+    binary_operation
+      Ops.div
+      (fun ty _ y -> Ops.inv ty y)
+      (fun ty x y -> Ops.(div ty (neg ty x) (mul ty y y)))
+      x y
 
   let let_in (xf : 'a exp) (f : 'a exp -> 'b exp) stack =
     let x = xf stack in
-    let y = f (Fun.const x) stack in
-    y
+    f (Fun.const x) stack
 
   let (let*) = let_in
-
-  let mul (xf : 'a exp) (yf : 'a exp) stack =
-    let x = xf stack in
-    let y = yf stack in
-    let ty = ty x in
-    let z = V {
-        ty ;
-        v = mul ty (get_v x) (get_v y) ;
-        d = zero x
-      } in
-    let backward () =
-      update_d x (mul ty (get_d z) (get_v y)) ;
-      update_d y (mul ty (get_d z) (get_v x))
-    in
-    Stack.push backward stack ;
-    z
 
   let diag xf stack =
     let x_node = xf stack in
     let x = get_v x_node in
     let n = Vec.dim x in
     let m = Mat.init_cols n n (fun i j -> if i = j then x.{i} else 0.) in
-    let z = V { ty = Type.Matrix ; v = m ; d = zero_of_value Type.Matrix m } in
+    let z = V { ty = Type.Matrix ; v = m ; d = Ops.zero Type.Matrix m } in
     let backward () =
       let dz = get_d z in
       update_vec_d x_node (fun i -> dz.{i, i})
@@ -247,7 +326,7 @@ module Diff = struct
     done
 
   let parameter ty init =
-    V { v = init ; ty ; d = zero_of_value ty init }
+    V { v = init ; ty ; d = Ops.zero ty init }
 
   let obs (f : 'a exp -> float exp) ty x =
     let stack = Stack.create () in
@@ -288,36 +367,18 @@ f'(x) = 4(2x + 1) - 1
 
 let%expect_test "dot product w^T w + b" =
   print_endline {|
->>> import torch
->>> w = torch.tensor([1.0,2,0,1], requires_grad = True)
->>> b = torch.tensor(2.0, requires_grad = True)
->>> z = torch.dot(w, w) + b
->>> z.backward()
->>> w.grad
-tensor([2., 4., 0., 2.])
->>> b.grad
-tensor(1.)
 |} ;
   Diff.(
+    let sigmoid x = div (float 1.) (add (float 1.) (exp (neg x))) in
     obs2
-      (fun w b -> add (vector_dot w w) b)
-      (Type.vector, Lacaml.D.Vec.of_array [|1.;2.;0.;1.|])
-      (Type.float, 2.)
+      (fun w b -> sigmoid (add (vector_dot w w) b))
+      (Type.vector, Lacaml.D.Vec.of_array [|0.1;0.2;0.;-0.1|])
+      (Type.float, 0.3)
   )
   |> [%show: float * (vector * float)]
   |> print_endline ;
   [%expect {|
-    >>> import torch
-    >>> w = torch.tensor([1.0,2,0,1], requires_grad = True)
-    >>> b = torch.tensor(2.0, requires_grad = True)
-    >>> z = torch.dot(w, w) + b
-    >>> z.backward()
-    >>> w.grad
-    tensor([2., 4., 0., 2.])
-    >>> b.grad
-    tensor(1.)
-
-    (8., (2
-          4
-          0
-          2, 1.)) |}]
+    (0.589040434059, ( 0.0484144
+                       0.0968287
+                               0
+                      -0.0484144, 0.242071801103)) |}]
