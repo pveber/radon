@@ -7,6 +7,8 @@ module Type : sig
   val float : float t
   val vector : vector t
   val matrix : matrix t
+
+  val pair : 'a t -> 'b t -> ('a * 'b) t
 end
 
 module type Lang = sig
@@ -16,6 +18,11 @@ module type Lang = sig
   val float : float -> float exp
   val vector : vector -> vector exp
   val matrix : matrix -> matrix exp
+
+  module T2 : sig
+    val fst : ('a * 'b) exp -> 'a exp
+    val snd : ('a * 'b) exp -> 'b exp
+  end
 
   val let_in : 'a exp -> ('a exp -> 'b exp) -> 'b exp
   val ( let* ) : 'a exp -> ('a exp -> 'b exp) -> 'b exp
@@ -36,11 +43,6 @@ module type Lang = sig
 
   type 'a obs
   val obs : ('a exp -> float exp) -> 'a Type.t -> 'a -> 'a obs
-  val obs2 :
-    ('a exp -> 'b exp -> float exp) ->
-    ('a Type.t * 'a) ->
-    ('b Type.t * 'b) ->
-    ('a * 'b) obs
 end
 
 module Diff : Lang with type 'a obs = float * 'a

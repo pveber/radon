@@ -20,13 +20,19 @@ module Type = struct
     | Float : float t
     | Vector : vector t
     | Matrix : matrix t
-    | Tuple2 : 'a t * 'b t -> ('a * 'b) t
+    | Pair : 'a t * 'b t -> ('a * 'b) t
 
   let float = Float
   let vector = Vector
   let matrix = Matrix
-  let t2 x y = Tuple2 (x, y)
-  [@@ocaml.warning "-32"]
+  let pair x y = Pair (x, y)
+
+  let unpair
+    : type a b. (a * b) t -> a t * b t
+    = function
+      | Pair (x, y) -> x, y
+      | Vector -> assert false
+      | Matrix -> assert false
 end
 
 module type Lang = sig
@@ -35,6 +41,11 @@ module type Lang = sig
   val float : float -> float exp
   val vector : vector -> vector exp
   val matrix : matrix -> matrix exp
+
+  module T2 : sig
+    val fst : ('a * 'b) exp -> 'a exp
+    val snd : ('a * 'b) exp -> 'b exp
+  end
 
   val let_in : 'a exp -> ('a exp -> 'b exp) -> 'b exp
   val ( let* ) : 'a exp -> ('a exp -> 'b exp) -> 'b exp
@@ -54,11 +65,6 @@ module type Lang = sig
 
   type 'a obs
   val obs : ('a exp -> float exp) -> 'a Type.t -> 'a -> 'a obs
-  val obs2 :
-    ('a exp -> 'b exp -> float exp) ->
-    ('a Type.t * 'a) ->
-    ('b Type.t * 'b) ->
-    ('a * 'b) obs
 end
 
 module Ops = struct
@@ -70,7 +76,7 @@ module Ops = struct
       | Type.Vector -> Lacaml.D.Vec.(make (dim x) 0.)
       | Type.Matrix ->
         Lacaml.D.Mat.(make (dim1 x) (dim2 x) 0.)
-      | Type.Tuple2 (ty1, ty2) ->
+      | Type.Pair (ty1, ty2) ->
         (zero ty1 (fst x), zero ty2 (snd x))
 
   (* let rec one *)
@@ -80,7 +86,7 @@ module Ops = struct
   (*     | Type.Float -> 1. *)
   (*     | Type.Vector *)
   (*     | Type.Matrix *)
-  (*     | Type.Tuple2 _ -> assert false *)
+  (*     | Type.Pair _ -> assert false *)
 
   let rec unary_operation
     : type a.
@@ -93,7 +99,7 @@ module Ops = struct
       | Type.Float -> f0 x
       | Type.Vector -> f1 x
       | Type.Matrix -> f2 x
-      | Type.Tuple2 (t1, t2) ->
+      | Type.Pair (t1, t2) ->
         (unary_operation f0 f1 f2 t1 (fst x),
          unary_operation f0 f1 f2 t2 (snd x))
 
@@ -130,7 +136,7 @@ module Ops = struct
       | Type.Float -> f0 x y
       | Type.Vector -> f1 x y
       | Type.Matrix -> f2 x y
-      | Type.Tuple2 (t1, t2) ->
+      | Type.Pair (t1, t2) ->
         (binary_operation f0 f1 f2 t1 (fst x) (fst y),
          binary_operation f0 f1 f2 t2 (snd x) (snd y))
 
@@ -206,6 +212,28 @@ module Diff = struct
 
   let mk_var ty v =
     V { ty ; v ; d = Ops.zero ty v }
+
+  module T2 = struct
+    let fst xf stack =
+      let x = xf stack in
+      let ty_fst, ty_snd = Type.unpair (ty x) in
+      let z = mk_var ty_fst (fst (get_v x)) in
+      let backward () =
+        update_d x (get_d z, Ops.zero ty_snd (snd (get_v x)))
+      in
+      Stack.push backward stack ;
+      z
+
+    let snd xf stack =
+      let x = xf stack in
+      let ty_fst, ty_snd = Type.unpair (ty x) in
+      let z = mk_var ty_snd (snd (get_v x)) in
+      let backward () =
+        update_d x (Ops.zero ty_fst (Stdlib.fst (get_v x)), get_d z)
+      in
+      Stack.push backward stack ;
+      z
+  end
 
   let unary_operation_gen f df xf stack =
     let x = xf stack in
@@ -330,14 +358,6 @@ module Diff = struct
     let y = f (Fun.const x) stack in
     backward stack y ;
     get_v y, get_d x
-
-  let obs2 (f : 'a exp -> 'b exp -> float exp) (x_ty, x) (y_ty, y) =
-    let stack = Stack.create () in
-    let x = parameter x_ty x in
-    let y = parameter y_ty y in
-    let z = f (Fun.const x) (Fun.const y) stack in
-    backward stack z ;
-    get_v z, (get_d x, get_d y)
 end
 
 let%expect_test "second order polynomial (2x + 1)^2 - x" =
@@ -374,10 +394,13 @@ tensor(0.2421)
 |} ;
   Diff.(
     let sigmoid x = div (float 1.) (add (float 1.) (exp (neg x))) in
-    obs2
-      (fun w b -> sigmoid (add (vector_dot w w) b))
-      (Type.vector, Lacaml.D.Vec.of_array [|0.1;0.2;0.;-0.1|])
-      (Type.float, 0.3)
+    obs
+      (fun theta ->
+         let* w = T2.fst theta in
+         let* b = T2.snd theta in
+         sigmoid (add (vector_dot w w) b))
+      Type.(pair vector float)
+      (Lacaml.D.Vec.of_array [|0.1;0.2;0.;-0.1|], 0.3)
   )
   |> [%show: float * (vector * float)]
   |> print_endline ;
